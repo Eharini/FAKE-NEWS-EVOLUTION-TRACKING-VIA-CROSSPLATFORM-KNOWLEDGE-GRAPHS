@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fake News Evolution Tracking</title>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<style>
+*{box-sizing:border-box;}
+body{margin:0;padding:0;font-family:"Poppins",Arial,sans-serif;background-color:#f5f7fa;color:#222;}
+.container{max-width:1200px;margin:auto;background:#fff;border-radius:16px;box-shadow:0 2px 8px rgba(0,0,0,0.1);padding:30px;margin-top:30px;}
+h1{text-align:center;color:#1e3a8a;font-size:1.8rem;margin-bottom:10px;}
+p{text-align:center;color:#555;font-size:0.95rem;margin-bottom:30px;}
+.layout{display:flex;flex-wrap:wrap;gap:20px;}
+.sidebar{flex:1 1 320px;}
+.main{flex:2 1 600px;}
+button{background-color:#2563eb;color:#fff;border:none;border-radius:8px;padding:10px 16px;font-weight:500;cursor:pointer;transition:background-color 0.25s ease,transform 0.15s ease;}
+button:hover{background-color:#1d4ed8;transform:translateY(-1px);}
+form{background:#f1f5f9;border:1px solid #e2e8f0;padding:15px;border-radius:12px;margin-top:15px;}
+label{font-weight:600;color:#1f2937;display:block;margin-bottom:6px;}
+textarea{width:100%;padding:10px;border-radius:8px;border:1px solid #cbd5e1;font-size:0.95rem;resize:vertical;transition:border-color 0.2s ease;}
+textarea:focus{border-color:#2563eb;outline:none;}
+svg{border:1px solid #e2e8f0;background:#f8fafc;border-radius:12px;box-shadow:0 0 4px rgba(0,0,0,0.05);width:100%;height:600px;}
+img{display:block;width:100%;margin-top:20px;border-radius:12px;box-shadow:0 1px 4px rgba(0,0,0,0.1);}
+.status{text-align:center;margin-top:10px;font-weight:500;color:#2563eb;}
+@media(max-width:768px){.layout{flex-direction:column;}}
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Fake News Evolution Tracking via Cross-Platform Knowledge Graphs</h1>
+  <p>Visualize how fake news spreads and evolves across social media platforms using knowledge graph analytics.</p>
+
+  <div class="layout">
+    <div class="sidebar">
+      <button id="loadGraph">Load Knowledge Graph</button>
+      <form id="claimForm">
+        <label for="claimText">Enter a Claim</label>
+        <textarea id="claimText" placeholder="Example: 'New vaccine causes health issues'"></textarea>
+        <button type="submit">Track Evolution</button>
+      </form>
+      <img src="diagram.png" alt="System Architecture Diagram">
+      <div class="status" id="status">Status: Idle</div>
+    </div>
+    <div class="main">
+      <svg id="graph"></svg>
+    </div>
+  </div>
+</div>
+
+<script>
+const backend="http://localhost:8000";
+const graphSvg=d3.select("#graph");
+const statusEl=document.getElementById("status");
+
+function setStatus(msg){statusEl.textContent="Status: "+msg;}
+
+async function loadGraph(){
+  setStatus("Loading knowledge graph...");
+  try{
+    const res=await fetch(backend+"/graph");
+    const data=await res.json();
+    drawGraph(data);
+    setStatus("Graph loaded successfully!");
+  }catch(err){console.error(err);setStatus("Error loading graph");}
+}
+
+async function submitClaim(e){
+  e.preventDefault();
+  const claim=document.getElementById("claimText").value;
+  if(!claim){alert("Enter a claim first!");return;}
+  setStatus("Analyzing claim evolution...");
+  try{
+    const res=await fetch(backend+"/evolution",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({claim})});
+    const data=await res.json();
+    drawGraph(data.graph);
+    setStatus("Evolution tracked successfully!");
+  }catch(err){console.error(err);setStatus("Error analyzing claim");}
+}
+
+function drawGraph(data){
+  graphSvg.selectAll("*").remove();
+  const width=parseInt(graphSvg.style("width"));
+  const height=parseInt(graphSvg.style("height"));
+
+  const color=d3.scaleOrdinal().domain(["twitter","reddit","youtube","claim"]).range(["#1DA1F2","#FF4500","#FF0000","#22C55E"]);
+
+  const link=graphSvg.append("g").selectAll("line").data(data.links).enter().append("line").attr("stroke","#999").attr("stroke-opacity",0.6).attr("stroke-width",d=>Math.sqrt(d.weight||1));
+  const node=graphSvg.append("g").selectAll("circle").data(data.nodes).enter().append("circle")
+    .attr("r",d=>d.type==="claim"?10:6)
+    .attr("fill",d=>color(d.platform||"claim"))
+    .call(d3.drag()
+      .on("start",dragstarted)
+      .on("drag",dragged)
+      .on("end",dragended));
+
+  const label=graphSvg.append("g").selectAll("text").data(data.nodes).enter().append("text").text(d=>d.label).attr("x",10).attr("y",3).attr("font-size",12);
+
+  const simulation=d3.forceSimulation(data.nodes)
+    .force("link",d3.forceLink(data.links).id(d=>d.id).distance(100))
+    .force("charge",d3.forceManyBody().strength(-300))
+    .force("center",d3.forceCenter(width/2,height/2));
+
+  simulation.on("tick",()=>{
+    link.attr("x1",d=>d.source.x).attr("y1",d=>d.source.y).attr("x2",d=>d.target.x).attr("y2",d=>d.target.y);
+    node.attr("cx",d=>d.x).attr("cy",d=>d.y);
+    label.attr("x",d=>d.x+10).attr("y",d=>d.y+3);
+  });
+
+  function dragstarted(event,d){if(!event.active)simulation.alphaTarget(0.3).restart();d.fx=d.x;d.fy=d.y;}
+  function dragged(event,d){d.fx=event.x;d.fy=event.y;}
+  function dragended(event,d){if(!event.active)simulation.alphaTarget(0);d.fx=null;d.fy=null;}
+}
+
+document.getElementById("loadGraph").addEventListener("click",loadGraph);
+document.getElementById("claimForm").addEventListener("submit",submitClaim);
+</script>
+</body>
+</html>
